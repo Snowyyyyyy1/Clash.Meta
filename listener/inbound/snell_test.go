@@ -67,6 +67,7 @@ func TestInboundSnell(t *testing.T) {
 		{"v3", 3},
 		{"v4", 4},
 		{"v5", 5},
+		{"v6", 6},
 	}
 	for _, tc := range testCase {
 		tc := tc
@@ -74,6 +75,15 @@ func TestInboundSnell(t *testing.T) {
 			inboundOptions := inbound.SnellOption{Version: tc.version}
 			outboundOptions := outbound.SnellOption{Version: tc.version}
 			testInboundSnell(t, inboundOptions, outboundOptions)
+		})
+	}
+}
+
+func TestInboundSnellV6Modes(t *testing.T) {
+	for _, mode := range []string{"default", "unshaped", "unsafe-raw"} {
+		tc := mode
+		t.Run(tc, func(t *testing.T) {
+			testInboundSnell(t, inbound.SnellOption{Version: 6, Mode: tc}, outbound.SnellOption{Version: 6, Mode: tc})
 		})
 	}
 }

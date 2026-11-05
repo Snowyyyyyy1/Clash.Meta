@@ -8,12 +8,14 @@ import (
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/snell"
 	"github.com/metacubex/mihomo/log"
+	tsnell "github.com/metacubex/mihomo/transport/snell"
 )
 
 type SnellOption struct {
 	BaseOption
 	Psk       string          `inbound:"psk"`
 	Version   int             `inbound:"version,omitempty"`
+	Mode      string          `inbound:"mode,omitempty"`
 	UDP       bool            `inbound:"udp,omitempty"`
 	ObfsOpts  SnellObfsOption `inbound:"obfs-opts,omitempty"`
 	ShadowTLS ShadowTLS       `inbound:"shadow-tls,omitempty"`
@@ -45,8 +47,13 @@ func NewSnell(options *SnellOption) (*Snell, error) {
 	if options.Version == 0 {
 		options.Version = 4
 	}
-	if options.Version < 1 || options.Version > 5 {
+	if options.Version < 1 || options.Version > 6 {
 		return nil, fmt.Errorf("snell inbound version %d is not supported", options.Version)
+	}
+	if options.Version == 6 {
+		if _, err := tsnell.ParseV6Mode(options.Mode); err != nil {
+			return nil, err
+		}
 	}
 
 	return &Snell{
@@ -56,6 +63,7 @@ func NewSnell(options *SnellOption) (*Snell, error) {
 			Listen:    base.RawAddress(),
 			Psk:       options.Psk,
 			Version:   options.Version,
+			Mode:      options.Mode,
 			UDP:       options.UDP,
 			ObfsMode:  options.ObfsOpts.Mode,
 			ObfsHost:  options.ObfsOpts.Host,

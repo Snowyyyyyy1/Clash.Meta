@@ -30,6 +30,7 @@ const maxPacketLength = 0x3fff
 type Listener struct {
 	closed    bool
 	config    LC.SnellServer
+	mode      snell.V6Mode
 	listeners []net.Listener
 }
 
@@ -38,9 +39,18 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		config.Version = snell.Version4
 	}
 	switch config.Version {
-	case snell.Version1, snell.Version2, snell.Version3, snell.Version4, snell.Version5:
+	case snell.Version1, snell.Version2, snell.Version3, snell.Version4, snell.Version5, snell.Version6:
 	default:
 		return nil, fmt.Errorf("snell inbound version %d is not supported", config.Version)
+	}
+	var v6Mode snell.V6Mode
+	if config.Version == snell.Version6 {
+		var err error
+		v6Mode, err = snell.ParseV6Mode(config.Mode)
+		if err != nil {
+			return nil, err
+		}
+		config.Mode = v6Mode.String()
 	}
 	if config.Psk == "" {
 		return nil, errors.New("snell inbound requires psk")
@@ -51,7 +61,7 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		return nil, fmt.Errorf("snell inbound obfs mode error: %s", config.ObfsMode)
 	}
 
-	l := &Listener{config: config}
+	l := &Listener{config: config, mode: v6Mode}
 
 	securityModes := make([]string, 0, 3)
 	if config.ShadowTLS.Enable {
@@ -162,7 +172,12 @@ func (l *Listener) HandleConn(rawConn net.Conn, tunnel C.Tunnel, additions ...in
 	default:
 		return
 	}
-	stream := snell.ServerStreamConn(conn, []byte(l.config.Psk), l.config.Version)
+	var stream *snell.Snell
+	if l.config.Version == snell.Version6 {
+		stream = snell.ServerStreamConnV6(conn, []byte(l.config.Psk), l.mode)
+	} else {
+		stream = snell.ServerStreamConn(conn, []byte(l.config.Psk), l.config.Version)
+	}
 	for {
 		reuse, err := l.handleRequest(stream, tunnel, additions...)
 		if err != nil || !reuse {
@@ -197,7 +212,11 @@ func (l *Listener) handleRequest(stream *snell.Snell, tunnel C.Tunnel, additions
 
 	switch command {
 	case snell.CommandConnect, snell.CommandConnectV2:
-		return l.handleTCP(stream, br, command == snell.CommandConnectV2, clientID, tunnel, additions...)
+		// For Snell v1/v2/v4, command 5 is the reusable CONNECT variant.
+		// For Snell v6, command 5 means CONNECT with TCP half-close tolerance;
+		// v6 has no CONNECT reuse.
+		reuse := command == snell.CommandConnectV2 && l.config.Version != snell.Version6
+		return l.handleTCP(stream, br, reuse, clientID, tunnel, additions...)
 	case snell.CommandUDP:
 		if !l.config.UDP {
 			return false, errors.New("snell UDP is disabled")
@@ -359,6 +378,9 @@ func (c *tcpRequestConn) Write(p []byte) (int, error) {
 }
 
 func (c *tcpRequestConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
 	return c.Close()
 }
 

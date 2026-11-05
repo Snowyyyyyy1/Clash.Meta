@@ -179,6 +179,16 @@ func PacketConn(conn net.Conn) net.PacketConn {
 	}
 }
 
+// CloseWrite forwards to a protocol-level half-close when the underlying
+// connection supports one. Snell v6 uses a zero-length record for this;
+// legacy versions fall back to a full close.
+func (s *Snell) CloseWrite() error {
+	if cw, ok := s.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return s.Close()
+}
+
 func (s *Snell) WritePacketFrame(b []byte) (int, error) {
 	if fw, ok := s.Conn.(packetFrameWriter); ok {
 		return fw.WritePacketFrame(b)
